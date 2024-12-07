@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapbox GL JS Map</title>
+    <!-- Mapbox GL CSS -->
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        #filter, #search, #dist-info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            z-index: 999;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            margin-bottom: 10px;
+        }
+        #search {
+            top: 70px; /* Place below filter dropdown */
+        }
+        #dist-info {
+            top: 140px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Filter -->
+    <div id="filter">
+        <label for="house-select">Select Type:</label>
+        <select id="house-select">
+            <option value="All">All</option>
+            <option value="Assembly">Assembly</option>
+            <option value="Senate">Senate</option>
+            <option value="Common Council">Milwaukee Common Council</option>
+            <option value="MPS School Board">MPS School Board</option>
+        </select>
+    </div>
+
+
+    <!-- Search Filter -->
+    <div id="search">
+        <label for="search-input">Search:</label>
+        <input type="text" id="search-input" placeholder="Search by property...">
+    </div>
+
+    <!-- District Information -->
+    <div id="dist-info" style="visibility: hidden;">
+        <div id="district"></div>
+        <div id="inc-name"></div>
+    </div>
+
+    <!-- Map container -->
+    <div id="map"></div>
+
+    <!-- Mapbox GL JS -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <script>
+        // Your Mapbox access token
+        mapboxgl.accessToken = 'pk.eyJ1IjoibXJwZWNuZXJzIiwiYSI6ImNsZjF0bHdvNTBidnkzeWxoYnB4bzU5cDAifQ.bfPhvoBQ-IFSM_l9px9eFg';
+
+
+        // Initialize the map
+        const map = new mapboxgl.Map({
+            container: 'map', // ID of the container
+            style: 'mapbox://styles/mapbox/streets-v11', // Map style
+            center: [-89.500, 45.000], // Starting position [lng, lat] (New York City)
+            zoom: 6 // Starting zoom level
+        });
+
+        // Add GeoJSON layer
+        fetch('https://raw.githubusercontent.com/pecners/elected_districts/main/data/leges.geojson')
+            .then(response => response.json())
+            .then(data => {
+                map.on('load', () => {
+                    // Add source for GeoJSON
+                    map.addSource('geojson-source', {
+                        type: 'geojson',
+                        data: data
+                    });
+
+                    // Add a layer to display the GeoJSON
+                    map.addLayer({
+                        id: 'polygon-layer',
+                        type: 'fill', // Change to 'line', 'fill', etc., depending on your data
+                        source: 'geojson-source',
+                        paint: {
+                            'fill-color': [
+                                'case',
+                                ['boolean', ['feature-state', 'hover'], false], // Check hover state
+                                '#f00', // Highlight color when hovered
+                                '#088'  // Default color
+                            ],
+                            'fill-opacity': 0.5                        
+                        }
+                    });
+
+                    console.log(map.getLayer('polygon-layer'));
+                    
+                    // polygon outline layer
+                    map.addLayer({
+                        id: 'polygon-outline-layer',
+                        type: 'line',
+                        source: 'geojson-source',
+                        paint: {
+                            'line-color': '#fff',
+                            'line-width': .5
+                        }
+                    });
+
+
+                    // Dropdown filter for elected house
+                    document.getElementById('house-select').addEventListener('change', (e) => {
+                        const selectedValue = e.target.value;
+
+                        // Update the map filter based on selection
+                        const filter = selectedValue === 'all' ? null : ['==', ['get', 'house'], selectedValue];
+                        map.setFilter('polygon-layer', filter);
+                        map.setFilter('polygon-outline-layer', filter);
+                    });
+
+                    // Search filter
+                    document.getElementById('search-input').addEventListener('input', (e) => {
+                        const searchValue = e.target.value.toLowerCase();
+
+                        // Filter features based on multiple properties
+                        const filteredFeatures = data.features.filter(feature => {
+                            const { name, house, district } = feature.properties; // Adjust based on your GeoJSON properties
+                            return (
+                                (name && name.toLowerCase().includes(searchValue)) ||
+                                (house && house.toLowerCase().includes(searchValue)) ||
+                                (district && district.toLowerCase() == searchValue)
+                            );
+                        });
+
+                        // Update the GeoJSON source with filtered features
+                        map.getSource('geojson-source').setData({
+                            ...data,
+                            features: filteredFeatures
+                        });
+                    });
+
+                    let hoveredFeatureId = null;
+
+                    const nameDiv = document.getElementById('inc-name');
+                    const distDiv = document.getElementById('district');
+                    const distInfo = document.getElementById('dist-info');
+
+                    // Mousemove event to set the hover state
+                    map.on('mousemove', 'polygon-layer', (e) => {
+                        if (e.features.length > 0) {
+                            const featureId = e.features[0].id;
+
+                            // Remove hover state from the previously hovered feature
+                            if (hoveredFeatureId !== null) {
+                                map.setFeatureState(
+                                    { source: 'geojson-source', id: hoveredFeatureId },
+                                    { hover: false }
+                                );
+                            }
+
+                            // Set hover state for the currently hovered feature
+                            hoveredFeatureId = e.features[0].id;
+                            map.setFeatureState(
+                                { source: 'geojson-source', id: hoveredFeatureId },
+                                { hover: true }
+                            );
+
+                            // Change the cursor to a pointer
+                            map.getCanvas().style.cursor = 'pointer';
+
+                            these = e.features[0].properties
+
+                            // house and district 
+                            h = these.house;
+                            d = these.district;
+                            distDiv.textContent = `${h} District ${d}`
+
+                            // incumbant name info
+                            nm = these.name;
+                            if ('party_aff' in these) {
+                                pa = these.party_aff;
+                            } else {
+                                pa = 'Nonpartisan';
+                            }
+                            nameDiv.textContent = nm + ' (' + pa + ')';
+                            
+                            distInfo.style.visibility = 'visible';
+
+                        }
+                    });
+
+                    // Mouseleave event to reset the hover state
+                    map.on('mouseleave', 'polygon-layer', () => { 
+                        if (hoveredFeatureId !== null) {
+                            map.setFeatureState(
+                                { source: 'geojson-source', id: hoveredFeatureId },
+                                { hover: false }
+                            );
+                        }
+                        hoveredFeatureId = null;
+
+                        // Reset the cursor
+                        map.getCanvas().style.cursor = '';
+                        distInfo.style.visibility = 'hidden';
+
+                    });
+                });
+            })
+            .catch(error => console.error('Error loading GeoJSON:', error));
+
+
+        
+ 
+        // Add navigation controls (zoom in/out, compass)
+        map.addControl(new mapboxgl.NavigationControl());
+    </script>
+</body>
+</html>
+
+
